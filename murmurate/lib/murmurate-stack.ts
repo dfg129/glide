@@ -7,6 +7,7 @@ import * as path from "path";
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as eventsources from 'aws-cdk-lib/aws-lambda-event-sources';
 
 
 export class MurmurateStack extends cdk.Stack {
@@ -30,22 +31,27 @@ export class MurmurateStack extends cdk.Stack {
 
     const repo = ecr.Repository.fromRepositoryName(this, 'RepositoryName', name);
 
-    const entryfile = path.join(__dirname, 'handlers/handler.ts');
+    const dockerdir = path.join(__dirname, '..');
+    const entryfile = path.join(__dirname, 'handlers/index.ts');
 
     const fn = new NodejsFunction(this, 'S3EventHandler', {
 	    bundling: {
 		    forceDockerBundling: true,
-		    dockerImage: cdk.DockerImage.fromBuild(__dirname),
+		    dockerImage: cdk.DockerImage.fromBuild(dockerdir),
 	    },
-	    handler: 'run',
 	    entry: entryfile,
+	    handler: 'handler',
 	    architecture: lambda.Architecture.ARM_64,
 	    runtime: lambda.Runtime.NODEJS_14_X,
     });
 
+    bucket.grantRead(fn);
+    fn.addEventSource(
+	new eventsources.S3EventSource(bucket, {
+	      events: [s3.EventType.OBJECT_CREATED], 
+        }),
+    );
 
-    bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(fn));
-    
     new cdk.CfnOutput(this, 'FromRepositoryName', {
 	    value: repo.repositoryName,
 	    description: 'Repository Name',
